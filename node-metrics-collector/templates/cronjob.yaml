@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-node-metrics-cronjob
+  namespace: {{ .Values.namespace }}
+spec:
+  schedule: "{{ .Values.cron.schedule }}"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: node-metrics
+              image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              volumeMounts:
+                - name: metrics-volume
+                  mountPath: {{ .Values.volumeMount.mountPath }}
+          restartPolicy: {{ .Values.restartPolicy }}
+          volumes:
+            - name: metrics-volume
+              persistentVolumeClaim:
+                claimName: {{ .Release.Name }}-metrics-pvc

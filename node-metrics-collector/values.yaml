@@ -1,0 +1,23 @@
+persistentVolume:
+  storage: 1Gi
+  accessMode: ReadWriteOnce
+  path: /persistent/metrics/node
+
+persistentVolumeClaim:
+  storage: 1Gi
+  accessMode: ReadWriteOnce
+
+cron:
+  schedule: "*/1 * * * *"
+
+image:
+  repository: ujjwalkarn954/node-metrics-collector
+  tag: 0.0.1
+  pullPolicy: IfNotPresent
+
+volumeMount:
+  mountPath: /metrics
+
+restartPolicy: OnFailure
+
+namespace: monitoring
