@@ -176,3 +176,13 @@ kubectl get cronjob -n monitoring
 
 - We have sucessfully deployes the cronjob that collects the node metrics using node-exporter, we can see the log files in the PV mounted at `/persistent/metrics/node`.
 
+### 9. Deploying a long live pod
+
+- To continously access the files written by a cronjob that runs every minute and mounts a PV, we need to presist data beyound the lifetime of each pod. So we deploy a long running pod `debug-pod.yaml` that mounts the same PV to access the files any time.
+
+### 10. Accessing the files containing node metrics
+
+```sh
+ kubectl exec -it node-metrics-collector-debug-pod -n monitoring -- cat metrics/<Recent file name>
+ ```
+
