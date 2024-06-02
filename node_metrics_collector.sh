@@ -13,67 +13,59 @@ mkdir -p $METRICS_DIR
 metrics=$(curl -s $NODE_EXPORTER_URL)
 
 # Extract and format CPU usage
-cpu_stats=$(echo "$metrics" | grep '^node_cpu_seconds_total')
-cpu_usage=$(echo "$cpu_stats" | awk '
-BEGIN {
-  total_time = 0;
-  idle_time = 0;
-  user_time = 0;
-  system_time = 0;
-  iowait_time = 0;
-}
-{
-  if ($1 ~ /mode="idle"/) {              # Changed line
-    idle_time += $2;                     # Changed line
-  } else if ($1 ~ /mode="user"/) {       # Changed line
-    user_time += $2;                     # Changed line
-  } else if ($1 ~ /mode="system"/) {     # Changed line
-    system_time += $2;                   # Changed line
-  } else if ($1 ~ /mode="iowait"/) {     # Changed line
-    iowait_time += $2;                   # Changed line
-  }
-  total_time += $2;                      # Changed line
-}
-END {
-  cpu_usage = (1 - (idle_time / total_time)) * 100;
-  printf "CPU Usage: %.2f%%\n", cpu_usage;
-  printf "User Time: %.2f seconds\n", user_time;
-  printf "System Time: %.2f seconds\n", system_time;
-  printf "Idle Time: %.2f seconds\n", idle_time;
-  printf "I/O Wait Time: %.2f seconds\n", iowait_time;
-  printf "Total CPU Time: %.2f seconds\n", total_time;
-}')
+CPU_METRICS=$(curl -s "$NODE_EXPORTER_URL" | grep 'node_cpu_seconds_total')
 
-# Extract and format memory usage
-memory_total=$(echo "$metrics" | grep '^node_memory_MemTotal_bytes' | awk '{print $2}')
-memory_available=$(echo "$metrics" | grep '^node_memory_MemAvailable_bytes' | awk '{print $2}')
-memory_free=$(echo "$metrics" | grep '^node_memory_MemFree_bytes' | awk '{print $2}')
-memory_cached=$(echo "$metrics" | grep '^node_memory_Cached_bytes' | awk '{print $2}')
-memory_buffers=$(echo "$metrics" | grep '^node_memory_Buffers_bytes' | awk '{print $2}')
-memory_usage=$(awk -v total="$memory_total" -v available="$memory_available" -v free="$memory_free" -v cached="$memory_cached" -v buffers="$memory_buffers" 'BEGIN {
-  used = total - available;
-  usage = (used / total) * 100;
-  printf "Memory Usage: %.2f%%\n", usage;
-  printf "Total Memory: %.2f MB\n", total / (1024 * 1024);
-  printf "Available Memory: %.2f MB\n", available / (1024 * 1024);
-  printf "Free Memory: %.2f MB\n", free / (1024 * 1024);
-  printf "Cached Memory: %.2f MB\n", cached / (1024 * 1024);
-  printf "Buffers: %.2f MB\n", buffers / (1024 * 1024);
-}')
+# Initialize variables for total time and total idle time
+TOTAL_CPU=0
+TOTAL_FREE_CPU=0
 
-# Extract and format disk usage
-disk_total=$(echo "$metrics" | grep '^node_filesystem_size_bytes' | awk '{total+=$2} END{print total}')  # Changed line
-disk_available=$(echo "$metrics" | grep '^node_filesystem_avail_bytes' | awk '{avail+=$2} END{print avail}')  # Changed line
-disk_usage=$(awk -v total="$disk_total" -v available="$disk_available" 'BEGIN {
-  used = total - available;
-  usage = (used / total) * 100;
-  printf "Disk Usage: %.2f%%\n", usage;
-  printf "Total Disk Space: %.2f GB\n", total / (1024 * 1024 * 1024);
-  printf "Available Disk Space: %.2f GB\n", available / (1024 * 1024 * 1024);
-}')
+# Loop through each CPU core metric
+while IFS= read -r line; do
+    # Extract mode and value from the metric
+    mode=$(echo "$line" | awk -F '[{},="]' '{print $8}')
+    value=$(echo "$line" | awk '{print $2}')
 
-# Save the formatted metrics to a file
-echo -e "$cpu_usage\n$memory_usage\n$disk_usage" > $METRICS_FILE  # Changed line
+    # If mode is idle, add value to total idle time
+    if [ $mode = "idle" ]; then
+        TOTAL_FREE_CPU=$(awk "BEGIN {print $TOTAL_FREE_CPU + $value}")
+    fi
 
-# Log the action
-echo "Metrics saved to $METRICS_FILE"
+    # Add value to total time
+    TOTAL_CPU=$(awk "BEGIN {print $TOTAL_CPU + $value}")
+
+done < <(echo "$CPU_METRICS")
+
+# Calculate CPU usage percentage
+CPU_USAGE_PERCENTAGE=$(awk "BEGIN {print (($TOTAL_CPU - $TOTAL_FREE_CPU) / $TOTAL_CPU) * 100}")
+
+
+# Retrieve Memory metrics from Node Exporter
+TOTAL_MEMORY=$(curl -s $NODE_EXPORTER_URL | grep '^node_memory_MemTotal_bytes' | awk '{print $2}')
+FREE_MEMORY=$(curl -s $NODE_EXPORTER_URL | grep '^node_memory_MemFree_bytes' | awk '{print $2}')
+
+# Calculate Memory usage percentage
+MEMORY_USAGE_PERCENTAGE=$(awk "BEGIN {print (($TOTAL_MEMORY - $FREE_MEMORY) / $TOTAL_MEMORY) * 100}")
+
+
+# Retrieve Disk metrics from Node Exporter
+DISK_SIZE=$(curl -s $NODE_EXPORTER_URL | awk -F ' ' '/node_filesystem_size_bytes.*device="tmpfs".*mountpoint="\/var"/ {print $2}')
+FREE_DISK=$(curl -s $NODE_EXPORTER_URL | awk -F ' ' '/node_filesystem_free_bytes.*device="tmpfs".*mountpoint="\/var"/ {print $2}')
+
+# Calculate Memory usage percentage
+DISK_USAGE_PERCENTAGE=$(awk "BEGIN {print (($DISK_SIZE - $FREE_DISK) / $DISK_SIZE) * 100}")
+
+
+# Write metrics to file with timestamped filename
+cat <<EOF > "$METRICS_FILE"
+Total CPU: $TOTAL_CPU
+Free CPU: $TOTAL_FREE_CPU
+CPU Usage Percentage: $CPU_USAGE_PERCENTAGE%
+
+Total Memory: $TOTAL_MEMORY
+Free Memory: $FREE_MEMORY
+Memory Usage Percentage: $MEMORY_USAGE_PERCENTAGE%
+
+Disk Size: $DISK_SIZE
+Free Disk: $FREE_DISK
+Disk Usage Percentage: $DISK_USAGE_PERCENTAGE%
+EOF
