@@ -1,17 +1,21 @@
-# Use an official lightweight image
-FROM alpine:latest
+# Use a lightweight base image
+FROM alpine:3.19.1
 
-# Install necessary packages
-RUN apk --no-cache add curl bash
+# Create a non-root user to run the application
+RUN adduser -D appuser
 
-# Set working directory
-WORKDIR /usr/src/app
+# Install curl
+RUN apk --no-cache add curl
 
-# Copy the script into the container
-COPY node_metrics_collector.sh .
+# Copy the bash script into the container
+COPY node_metrics_collector.sh /node_metrics_collector.sh
 
-# Make the script executable
-RUN chmod +x node_metrics_collector.sh
+# Change ownership and permissions of the script
+RUN chown appuser:appuser /node_metrics_collector.sh \
+    && chmod 755 /node_metrics_collector.sh
 
-# Run the script
-CMD ["./node_metrics_collector.sh"]
+# Switch to the non-root user
+USER appuser
+
+# Run the script when the container starts
+CMD ["sh", "/node_metrics_collector.sh"]
